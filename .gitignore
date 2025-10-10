@@ -1,0 +1,11 @@
+data/
+output/
+outputs/
+wandb/
+checkpoints/
+
+*.pyc
+
+venv/
+
+scripts/wandb_api_key.txt

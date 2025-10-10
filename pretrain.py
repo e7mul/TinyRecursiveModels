@@ -587,8 +587,16 @@ def launch(hydra_config: DictConfig):
     ema_helper = None
     if RANK == 0:
         progress_bar = tqdm.tqdm(total=train_state.total_steps)
-        wandb.init(project=config.project_name, name=config.run_name, config=config.model_dump(), settings=wandb.Settings(_disable_stats=True))  # type: ignore
-        wandb.log({"num_params": sum(x.numel() for x in train_state.model.parameters())}, step=0)
+        use_wandb = os.environ.get("WANDB_DISABLED", "false").lower() != "true"
+        if use_wandb:
+            try:
+                wandb.init(project=config.project_name, name=config.run_name, config=config.model_dump(),
+                        settings=wandb.Settings(_disable_stats=True))
+            except Exception as e:
+                print(f"W&B disabled due to init error: {e}")
+                os.environ["WANDB_DISABLED"] = "true"
+        if wandb.run is not None:
+            wandb.log({"num_params": sum(x.numel() for x in train_state.model.parameters())}, step=0)
         save_code_and_config(config)
     if config.ema:
         print('Setup EMA')
@@ -647,7 +655,8 @@ def launch(hydra_config: DictConfig):
     # finalize
     if dist.is_initialized():
         dist.destroy_process_group()
-    wandb.finish()
+    if wandb.run is not None:
+        wandb.finish()
 
 
 if __name__ == "__main__":

@@ -8,24 +8,24 @@ Follow these steps to get started with Helios:
 2. **Set up the environment**  
    Run the following script from the main directory:
    ```bash
-   bash scripts/setup_env.sh
+   sbatch scripts/setup_env.sh
    ```
 
 3. **Build the Maze Hard dataset**  
    (Run this _once_.)
    ```bash
-   bash scripts/build_maze_hard_dataset.sh
+   sbatch scripts/build_maze_hard_dataset.sh
    ```
 
 4. **Start the experiment**  
    ```bash
-   bash scripts/run_maze_hard_experiment.sh
+   sbatch scripts/run_maze_hard_experiment.sh
    ```
 
 5. **Sync results to the Weights & Biases server**  
    (_Use this step if you encounter certificate errors preventing auto-upload._)
    ```bash
-   bash scripts/wandb_sync.sh
+   sbatch scripts/wandb_sync.sh
    ```
 
 

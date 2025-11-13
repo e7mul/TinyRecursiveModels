@@ -1,0 +1,10 @@
+.venv/
+data/
+results/
+wandb/
+outputs/
+data/
+checkpoints/
+
+
+*.pyc

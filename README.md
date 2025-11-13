@@ -1,3 +1,36 @@
+# 🚀 Helios Setup Guide
+
+Follow these steps to get started with Helios:
+
+1. **Set up your Weights & Biases (wandb) API key**  
+   Create a file named `wandb_api_key.txt` and paste your personal API key into it.
+
+2. **Set up the environment**  
+   Run the following script from the main directory:
+   ```bash
+   sbatch scripts/setup_env.sh
+   ```
+
+3. **Build the Maze Hard dataset**  
+   (Run this _once_.)
+   ```bash
+   sbatch scripts/build_maze_hard_dataset.sh
+   ```
+
+4. **Start the experiment**  
+   ```bash
+   sbatch scripts/run_maze_hard_experiment.sh
+   ```
+
+5. **Sync results to the Weights & Biases server**  
+   (_Use this step if you encounter certificate errors preventing auto-upload._)
+   ```bash
+   sbatch scripts/wandb_sync.sh
+   ```
+
+
+
+
 # Less is More: Recursive Reasoning with Tiny Networks
 
 This is the codebase for the paper: "Less is More: Recursive Reasoning with Tiny Networks". TRM is a recursive reasoning approach that achieves amazing scores of 45% on ARC-AGI-1 and 8% on ARC-AGI-2 using a tiny 7M parameters neural network.

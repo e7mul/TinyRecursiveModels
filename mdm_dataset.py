@@ -14,7 +14,6 @@ class MDMDataset(Dataset):
         input_output_separator: str = "###"
     ):
         assert os.path.isfile(file_path), f"Input file path {file_path} not found"
-        self.separator = tokenizer(input_output_separator)["input_ids"][0]
 
         with open(file_path, encoding="utf-8") as f:
             lines = [

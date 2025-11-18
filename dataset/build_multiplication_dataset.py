@@ -46,7 +46,7 @@ def generate_data(
     return all_lines
 
 
-def pad_data(num1: str, num2: str, res: str, max_digits: int, pad_token: str) -> list[str]:
+def pad_data(num1: str, num2: str, res: str, max_digits: int, pad_token: str) -> tuple[str, str, str]:
     curr_digits = (len(num1) + 1)//2
     tokens_to_pad = max_digits - curr_digits
 

@@ -79,6 +79,12 @@ if __name__ == "__main__":
         help="Base filename for the generated dataset (without extension).",
     )
     parser.add_argument(
+        "--dname",
+        type=str,
+        required=True,
+        help="Directory for the generated dataset.",
+    )
+    parser.add_argument(
         "--previous_datasets",
         type=str,
         required=False,
@@ -90,7 +96,7 @@ if __name__ == "__main__":
     num_digits = args.num_digits
     num_samples = args.num_samples
 
-    path = os.path.join("mdm_data", f"{num_digits}_by_{num_digits}")
+    path = args.dname
     os.makedirs(path, exist_ok=True)
 
     previous_examples = set()

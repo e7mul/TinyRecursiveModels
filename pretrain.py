@@ -6,6 +6,7 @@ import yaml
 import shutil
 import copy
 
+from mdm_dataset import MDMDataset, MDMDatasetConfig
 import torch
 import torch.distributed as dist
 from torch import nn
@@ -17,7 +18,9 @@ import coolname
 import hydra
 import pydantic
 from omegaconf import DictConfig
-from adam_atan2 import AdamATan2
+# from adam_atan2 import AdamATan2
+from adam_atan2_pytorch import AdamAtan2 as AdamATan2
+
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
 from utils.functions import load_model_class, get_model_source_path
@@ -95,20 +98,39 @@ class TrainState:
 
 
 def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size: int, **kwargs):
-    dataset = PuzzleDataset(PuzzleDatasetConfig(
-        seed=config.seed,
-        dataset_paths=config.data_paths_test if len(config.data_paths_test)>0 and split=="test" else config.data_paths,
-        rank=rank,
-        num_replicas=world_size,
-        **kwargs
-    ), split=split)
+    # dataset = PuzzleDataset(PuzzleDatasetConfig(
+    #     seed=config.seed,
+    #     dataset_paths=config.data_paths_test if len(config.data_paths_test)>0 and split=="test" else config.data_paths,
+    #     rank=rank,
+    #     num_replicas=world_size,
+    #     **kwargs
+    # ), split=split)
+    
+    from transformers import GPT2Tokenizer
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    filepath = "data/MDM/short_test_MDM_dataset.txt"
+
+    dataset = MDMDataset(
+        MDMDatasetConfig(
+            seed=config.seed,
+            file_path=filepath,
+            tokenizer=tokenizer,
+            global_batch_size=128,
+            test_set_mode=(split == "test"),
+            epochs_per_iter=1,
+            rank=rank,
+            num_replicas=world_size,
+        )
+    )
+    # TODO: Should be batch_size = None, drop_last = True, but it breaks this way.
     dataloader = DataLoader(
         dataset,
-        batch_size=None,
+        batch_size=128,
         num_workers=1,
         prefetch_factor=8,
         pin_memory=True,
-        persistent_workers=True
+        persistent_workers=True,
+        drop_last=True
     )
     return dataloader, dataset.metadata
 
@@ -149,7 +171,7 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         optimizers = [
             AdamATan2(
                 model.parameters(),
-                lr=0,  # Needs to be set by scheduler
+                lr=0.1,  # Needs to be set by scheduler # TODO: Should be lr=0 but it does not work.
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2)
             )

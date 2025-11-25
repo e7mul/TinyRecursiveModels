@@ -18,8 +18,8 @@ import coolname
 import hydra
 import pydantic
 from omegaconf import DictConfig
-# from adam_atan2 import AdamATan2
-from adam_atan2_pytorch import AdamAtan2 as AdamATan2
+from adam_atan2 import AdamATan2
+# from adam_atan2_pytorch import AdamAtan2 as AdamATan2
 
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
@@ -97,7 +97,28 @@ class TrainState:
     total_steps: int
 
 
-def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size: int, **kwargs):
+def _resolve_mdm_file_path(candidate_paths: List[str], split: str) -> str:
+    for base_path in candidate_paths:
+        if os.path.isdir(base_path):
+            candidate = os.path.join(base_path, f"{split}.txt")
+            if os.path.isfile(candidate):
+                return candidate
+        elif os.path.isfile(base_path):
+            return base_path
+    raise FileNotFoundError(f"Could not find data file for split '{split}' in paths: {candidate_paths}")
+
+
+def create_dataloader(
+    config: PretrainConfig,
+    split: str,
+    test_set_mode: bool,
+    epochs_per_iter: int,
+    global_batch_size: int,
+    rank: int,
+    world_size: int,
+    max_size: int = -1,
+    input_output_separator: str = "###",
+):
     # dataset = PuzzleDataset(PuzzleDatasetConfig(
     #     seed=config.seed,
     #     dataset_paths=config.data_paths_test if len(config.data_paths_test)>0 and split=="test" else config.data_paths,
@@ -105,32 +126,36 @@ def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size:
     #     num_replicas=world_size,
     #     **kwargs
     # ), split=split)
-    
     from transformers import GPT2Tokenizer
+
+    data_paths = config.data_paths_test if (split == "test" and len(config.data_paths_test)) else config.data_paths
+    filepath = _resolve_mdm_file_path(data_paths, split)
+    print(f"Using file: {filepath}")
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    filepath = "data/MDM/short_test_MDM_dataset.txt"
 
     dataset = MDMDataset(
         MDMDatasetConfig(
             seed=config.seed,
             file_path=filepath,
             tokenizer=tokenizer,
-            global_batch_size=128,
-            test_set_mode=(split == "test"),
-            epochs_per_iter=1,
+            global_batch_size=global_batch_size,
+            test_set_mode=test_set_mode,
+            epochs_per_iter=epochs_per_iter,
             rank=rank,
             num_replicas=world_size,
+            max_size=max_size,
+            input_output_separator=input_output_separator,
+            use_puzzle_embeddings=config.arch.puzzle_emb_ndim > 0,
         )
     )
     # TODO: Should be batch_size = None, drop_last = True, but it breaks this way.
     dataloader = DataLoader(
         dataset,
-        batch_size=128,
+        batch_size=None,
         num_workers=1,
         prefetch_factor=8,
         pin_memory=True,
         persistent_workers=True,
-        drop_last=True
     )
     return dataloader, dataset.metadata
 

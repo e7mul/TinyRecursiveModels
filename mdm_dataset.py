@@ -21,6 +21,7 @@ class MDMDatasetConfig:
     num_replicas: int
     max_size: int = -1
     input_output_separator: str = "###"
+    use_puzzle_embeddings: bool = False
 
 
 class MDMDataset(IterableDataset):
@@ -58,17 +59,19 @@ class MDMDataset(IterableDataset):
         self.y = np.array(self.y, dtype=np.int32)
 
         # Create metadata
+        set_name = "test" if config.test_set_mode else "train"
+        num_puzzle_identifiers = 1 if config.use_puzzle_embeddings else 0
         self.metadata = PuzzleDatasetMetadata(
             pad_id=pad_id,
             ignore_label_id=None,  # disable ignore-label remapping
             blank_identifier_id=0,  # any id that won't be used (no puzzle IDs anyway)
             vocab_size=config.tokenizer.vocab_size,
             seq_len=max_len,
-            num_puzzle_identifiers=0,  # no puzzle embeddings
+            num_puzzle_identifiers=num_puzzle_identifiers,
             total_groups=1,  # treat the whole dataset as one group
             mean_puzzle_examples=len(self.X),  # so total_groups * mean_puzzle_examples ~= dataset size
             total_puzzles=len(self.X),  # arbitrary but consistent
-            sets=["train"],  # or ["all"], not used unless you plug into ARC-style eval
+            sets=[set_name],
         )
 
         # Checks
@@ -102,7 +105,7 @@ class MDMDataset(IterableDataset):
 
     def _iter_test(self):
         total_examples = len(self.X)
-        set_name = "train"  # Use the set name from metadata
+        set_name = self.metadata.sets[0]
 
         # Load examples sequentially
         start_index = 0
@@ -133,7 +136,7 @@ class MDMDataset(IterableDataset):
             start_index += self.config.global_batch_size
 
     def _iter_train(self):
-        set_name = "train"  # Use the set name from metadata
+        set_name = self.metadata.sets[0]
         
         # Increase epoch count
         self._iters += 1

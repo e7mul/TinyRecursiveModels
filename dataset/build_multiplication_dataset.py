@@ -91,6 +91,13 @@ if __name__ == "__main__":
         nargs="+",
         help="Space separated list of file names to make sure there is no overlap between train, val and test set examples",
     )
+    parser.add_argument(
+        "--max_digits",
+        type=int,
+        required=False,
+        help="Override for the maximum digit length used for padding. "
+             "If omitted we use max(num_digits). Must be >= every entry in --num_digits.",
+    )
     args = parser.parse_args()
 
     num_digits = args.num_digits
@@ -106,7 +113,13 @@ if __name__ == "__main__":
                 previous_examples.update(f.readlines())
 
     all_lines = []
-    max_digit_in_data = max(num_digits)
+    max_digit_in_data = (
+        args.max_digits if args.max_digits is not None else max(num_digits)
+    )
+    if max_digit_in_data < max(num_digits):
+        raise ValueError(
+            f"--max_digits ({max_digit_in_data}) must be at least the largest value in --num_digits ({max(num_digits)})"
+        )
     for digit_length in num_digits:
         samples = generate_data(digit_length, num_samples, previous_examples, max_digit_in_data)
         all_lines += samples

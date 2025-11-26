@@ -196,7 +196,7 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         optimizers = [
             AdamATan2(
                 model.parameters(),
-                lr=0.1,  # Needs to be set by scheduler # TODO: Should be lr=0 but it does not work.
+                lr=0,  # Needs to be set by scheduler # TODO: Should be lr=0 but it does not work.
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2)
             )

@@ -85,7 +85,7 @@ if __name__ == "__main__":
         help="Directory for the generated dataset.",
     )
     parser.add_argument(
-        "--previous_datasets",
+        "--previous_datasets_fnames",
         type=str,
         required=False,
         nargs="+",
@@ -107,8 +107,8 @@ if __name__ == "__main__":
     os.makedirs(path, exist_ok=True)
 
     previous_examples = set()
-    if args.previous_datasets:
-        for fname in args.previous_datasets:
+    if args.previous_datasets_fnames:
+        for fname in args.previous_datasets_fnames:
             with open(os.path.join(path, fname + ".txt"), "r") as f:
                 previous_examples.update(f.readlines())
 

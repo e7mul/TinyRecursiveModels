@@ -1,3 +1,15 @@
+# Build MDM Dataset
+
+   ```bash
+   python3 -m dataset.build_multiplication_dataset --max_digits 6 --num_digits 3 5 --num_samples 1000 --fname test --dname data/mdm_dataset/
+   ```
+
+# Run experiment
+
+   ```bash
+   ./mdm_exp.sh
+   ```
+
 # 🚀 Helios Setup Guide
 
 Follow these steps to get started with Helios:

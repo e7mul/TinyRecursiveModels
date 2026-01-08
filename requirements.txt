@@ -9,6 +9,7 @@ wandb
 omegaconf
 hydra-core
 huggingface_hub
+transformers
 packaging 
 ninja 
 wheel 

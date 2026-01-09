@@ -1,7 +1,8 @@
 # Build MDM Dataset
 
    ```bash
-   python3 -m dataset.build_multiplication_dataset --max_digits 6 --num_digits 3 5 --num_samples 1000 --fname test --dname data/mdm_dataset/
+   python3 -m dataset.build_multiplication_dataset --max_digits 4 --num_digits 4 --num_samples 1000 --fname train --dname data/mdm_dataset_train_test_same/
+   python3 -m dataset.build_multiplication_dataset --max_digits 4 --num_digits 4 --num_samples 1000 --fname test --dname data/mdm_dataset_train_test_same/ --previous_datasets_fnames train
    ```
 
 # Run experiment

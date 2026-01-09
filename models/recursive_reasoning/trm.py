@@ -56,6 +56,9 @@ class TinyRecursiveReasoningModel_ACTV1Config(BaseModel):
     halt_exploration_prob: float
 
     forward_dtype: str = "bfloat16"
+    
+    # Dropout
+    dropout: float = 0.0  # Dropout probability (0.0 = disabled)
 
     # Alexia: added
     mlp_t: bool = False # use mlp on L instead of transformer
@@ -88,6 +91,12 @@ class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
             expansion=config.expansion,
         )
         self.norm_eps = config.rms_norm_eps
+        
+        # Dropout layers (only create if dropout > 0)
+        if config.dropout > 0.0:
+            self.dropout = nn.Dropout(config.dropout)
+        else:
+            self.dropout = None
 
     def forward(self, cos_sin: CosSin, hidden_states: torch.Tensor) -> torch.Tensor:
         # B, L, D = hidden_states.shape
@@ -95,13 +104,20 @@ class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
         if self.config.mlp_t:
             hidden_states = hidden_states.transpose(1,2)
             out = self.mlp_t(hidden_states)
+            if self.dropout is not None:
+                out = self.dropout(out)
             hidden_states = rms_norm(hidden_states + out, variance_epsilon=self.norm_eps)
             hidden_states = hidden_states.transpose(1,2)
         else:
             # Self Attention
-            hidden_states = rms_norm(hidden_states + self.self_attn(cos_sin=cos_sin, hidden_states=hidden_states), variance_epsilon=self.norm_eps)
+            attn_out = self.self_attn(cos_sin=cos_sin, hidden_states=hidden_states)
+            if self.dropout is not None:
+                attn_out = self.dropout(attn_out)
+            hidden_states = rms_norm(hidden_states + attn_out, variance_epsilon=self.norm_eps)
         # Fully Connected
         out = self.mlp(hidden_states)
+        if self.dropout is not None:
+            out = self.dropout(out)
         hidden_states = rms_norm(hidden_states + out, variance_epsilon=self.norm_eps)
         return hidden_states
 
@@ -139,14 +155,15 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
                                                     batch_size=self.config.batch_size, init_std=0, cast_to=self.forward_dtype)
 
         # LM Blocks
-        if self.config.pos_encodings == "rope":
-            self.rotary_emb = RotaryEmbedding(dim=self.config.hidden_size // self.config.num_heads,
-                                              max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
-                                              base=self.config.rope_theta)
-        elif self.config.pos_encodings == "learned":
-            self.embed_pos = CastedEmbedding(self.config.seq_len + self.puzzle_emb_len, self.config.hidden_size, init_std=embed_init_std, cast_to=self.forward_dtype)
-        else:
-            pass
+        # Only create positional encodings if not using mlp_t (which doesn't need them)
+        if not self.config.mlp_t:
+            if self.config.pos_encodings == "rope":
+                self.rotary_emb = RotaryEmbedding(dim=self.config.hidden_size // self.config.num_heads,
+                                                  max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
+                                                  base=self.config.rope_theta)
+            elif self.config.pos_encodings == "learned":
+                self.embed_pos = CastedEmbedding(self.config.seq_len + self.puzzle_emb_len, self.config.hidden_size, init_std=embed_init_std, cast_to=self.forward_dtype)
+        # When mlp_t=True, no positional encodings needed (MLP operates on sequence dimension directly)
 
         # Reasoning Layers
         self.L_level = TinyRecursiveReasoningModel_ACTV1ReasoningModule(layers=[TinyRecursiveReasoningModel_ACTV1Block(self.config) for _i in range(self.config.L_layers)])

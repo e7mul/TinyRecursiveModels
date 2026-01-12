@@ -85,6 +85,11 @@ class PretrainConfig(pydantic.BaseModel):
     ema: bool = False # use Exponential-Moving-Average
     ema_rate: float = 0.999 # EMA-rate
     freeze_weights: bool = False # If True, freeze weights and only learn the embeddings
+    use_commutative_augmentation: bool = False # Enable commutative augmentation for MDM (swap a*b to b*a)
+    # Cyclic data mixing: optional additional dataset that gets sampled and mixed cyclically
+    cyclic_additional_dataset_path: str = ""  # Path to additional dataset file (empty = disabled)
+    cyclic_subset_size: int = 0  # Number of samples to sample from additional dataset (0 = disabled)
+    cyclic_refresh_epochs: int = 10  # Number of epochs before refreshing the subset
 
 @dataclass
 class TrainState:
@@ -119,35 +124,64 @@ def create_dataloader(
     max_size: int = -1,
     input_output_separator: str = "###",
 ):
-    # dataset = PuzzleDataset(PuzzleDatasetConfig(
-    #     seed=config.seed,
-    #     dataset_paths=config.data_paths_test if len(config.data_paths_test)>0 and split=="test" else config.data_paths,
-    #     rank=rank,
-    #     num_replicas=world_size,
-    #     **kwargs
-    # ), split=split)
-    from transformers import GPT2Tokenizer
-
+    # Detect dataset type: check if arch name contains "mdm" or if data path has .txt files
     data_paths = config.data_paths_test if (split == "test" and len(config.data_paths_test)) else config.data_paths
-    filepath = _resolve_mdm_file_path(data_paths, split)
-    print(f"Using file: {filepath}")
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    use_mdm_dataset = False
+    
+    # Check if arch name suggests MDM dataset
+    if hasattr(config.arch, 'name') and 'mdm' in config.arch.name.lower():
+        use_mdm_dataset = True
+    else:
+        # Check if data path contains .txt files (MDM format) vs .npy files (puzzle format)
+        for base_path in data_paths:
+            if os.path.isdir(base_path):
+                txt_file = os.path.join(base_path, f"{split}.txt")
+                if os.path.isfile(txt_file):
+                    use_mdm_dataset = True
+                    break
+            elif os.path.isfile(base_path) and base_path.endswith('.txt'):
+                use_mdm_dataset = True
+                break
+    
+    if use_mdm_dataset:
+        # Use MDM dataset (text files)
+        from transformers import GPT2Tokenizer
+        filepath = _resolve_mdm_file_path(data_paths, split)
+        print(f"Using MDM dataset file: {filepath}")
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
-    dataset = MDMDataset(
-        MDMDatasetConfig(
+        dataset = MDMDataset(
+            MDMDatasetConfig(
+                seed=config.seed,
+                file_path=filepath,
+                tokenizer=tokenizer,
+                global_batch_size=global_batch_size,
+                test_set_mode=test_set_mode,
+                epochs_per_iter=epochs_per_iter,
+                rank=rank,
+                num_replicas=world_size,
+                max_size=max_size,
+                input_output_separator=input_output_separator,
+                use_puzzle_embeddings=config.arch.puzzle_emb_ndim > 0,
+                use_commutative_augmentation=config.use_commutative_augmentation if not test_set_mode else False,  # Only enable for training
+                additional_dataset_path=config.cyclic_additional_dataset_path if not test_set_mode else "",  # Only enable for training
+                cyclic_subset_size=config.cyclic_subset_size if not test_set_mode else 0,  # Only enable for training
+                cyclic_refresh_epochs=config.cyclic_refresh_epochs,
+            )
+        )
+    else:
+        # Use Puzzle dataset (npy files) - for maze, ARC, sudoku, etc.
+        dataset = PuzzleDataset(PuzzleDatasetConfig(
             seed=config.seed,
-            file_path=filepath,
-            tokenizer=tokenizer,
+            dataset_paths=data_paths,
+            rank=rank,
+            num_replicas=world_size,
             global_batch_size=global_batch_size,
             test_set_mode=test_set_mode,
             epochs_per_iter=epochs_per_iter,
-            rank=rank,
-            num_replicas=world_size,
-            max_size=max_size,
-            input_output_separator=input_output_separator,
-            use_puzzle_embeddings=config.arch.puzzle_emb_ndim > 0,
-        )
-    )
+        ), split=split)
+        print(f"Using Puzzle dataset from paths: {data_paths}")
+    
     # TODO: Should be batch_size = None, drop_last = True, but it breaks this way.
     dataloader = DataLoader(
         dataset,

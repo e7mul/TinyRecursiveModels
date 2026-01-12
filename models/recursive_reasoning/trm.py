@@ -56,11 +56,16 @@ class TinyRecursiveReasoningModel_ACTV1Config(BaseModel):
     halt_exploration_prob: float
 
     forward_dtype: str = "bfloat16"
+    
+    # Dropout
+    dropout: float = 0.0  # Dropout probability (0.0 = disabled)
 
     # Alexia: added
     mlp_t: bool = False # use mlp on L instead of transformer
     puzzle_emb_len: int = 16 # if non-zero, its specified to this value
     no_ACT_continue: bool =  True # No continue ACT loss, only use the sigmoid of the halt which makes much more sense
+
+    halt_at_last_step: bool = False
 
 class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
     def __init__(self, config: TinyRecursiveReasoningModel_ACTV1Config) -> None:
@@ -86,6 +91,12 @@ class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
             expansion=config.expansion,
         )
         self.norm_eps = config.rms_norm_eps
+        
+        # Dropout layers (only create if dropout > 0)
+        if config.dropout > 0.0:
+            self.dropout = nn.Dropout(config.dropout)
+        else:
+            self.dropout = None
 
     def forward(self, cos_sin: CosSin, hidden_states: torch.Tensor) -> torch.Tensor:
         # B, L, D = hidden_states.shape
@@ -93,13 +104,20 @@ class TinyRecursiveReasoningModel_ACTV1Block(nn.Module):
         if self.config.mlp_t:
             hidden_states = hidden_states.transpose(1,2)
             out = self.mlp_t(hidden_states)
+            if self.dropout is not None:
+                out = self.dropout(out)
             hidden_states = rms_norm(hidden_states + out, variance_epsilon=self.norm_eps)
             hidden_states = hidden_states.transpose(1,2)
         else:
             # Self Attention
-            hidden_states = rms_norm(hidden_states + self.self_attn(cos_sin=cos_sin, hidden_states=hidden_states), variance_epsilon=self.norm_eps)
+            attn_out = self.self_attn(cos_sin=cos_sin, hidden_states=hidden_states)
+            if self.dropout is not None:
+                attn_out = self.dropout(attn_out)
+            hidden_states = rms_norm(hidden_states + attn_out, variance_epsilon=self.norm_eps)
         # Fully Connected
         out = self.mlp(hidden_states)
+        if self.dropout is not None:
+            out = self.dropout(out)
         hidden_states = rms_norm(hidden_states + out, variance_epsilon=self.norm_eps)
         return hidden_states
 
@@ -137,14 +155,15 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
                                                     batch_size=self.config.batch_size, init_std=0, cast_to=self.forward_dtype)
 
         # LM Blocks
-        if self.config.pos_encodings == "rope":
-            self.rotary_emb = RotaryEmbedding(dim=self.config.hidden_size // self.config.num_heads,
-                                              max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
-                                              base=self.config.rope_theta)
-        elif self.config.pos_encodings == "learned":
-            self.embed_pos = CastedEmbedding(self.config.seq_len + self.puzzle_emb_len, self.config.hidden_size, init_std=embed_init_std, cast_to=self.forward_dtype)
-        else:
-            pass
+        # Only create positional encodings if not using mlp_t (which doesn't need them)
+        if not self.config.mlp_t:
+            if self.config.pos_encodings == "rope":
+                self.rotary_emb = RotaryEmbedding(dim=self.config.hidden_size // self.config.num_heads,
+                                                  max_position_embeddings=self.config.seq_len + self.puzzle_emb_len,
+                                                  base=self.config.rope_theta)
+            elif self.config.pos_encodings == "learned":
+                self.embed_pos = CastedEmbedding(self.config.seq_len + self.puzzle_emb_len, self.config.hidden_size, init_std=embed_init_std, cast_to=self.forward_dtype)
+        # When mlp_t=True, no positional encodings needed (MLP operates on sequence dimension directly)
 
         # Reasoning Layers
         self.L_level = TinyRecursiveReasoningModel_ACTV1ReasoningModule(layers=[TinyRecursiveReasoningModel_ACTV1Block(self.config) for _i in range(self.config.L_layers)])
@@ -271,27 +290,29 @@ class TinyRecursiveReasoningModel_ACTV1(nn.Module):
             
             halted = is_last_step
 
-            # if training, and ACT is enabled
-            if self.training and (self.config.halt_max_steps > 1):
+            if not self.config.halt_at_last_step:
 
-                # Halt signal
-                # NOTE: During evaluation, always use max steps, this is to guarantee the same halting steps inside a batch for batching purposes
-                
-                if self.config.no_ACT_continue:
-                    halted = halted | (q_halt_logits > 0)
-                else:
-                    halted = halted | (q_halt_logits > q_continue_logits)
+                # if training, and ACT is enabled
+                if self.training and (self.config.halt_max_steps > 1):
 
-                # Exploration
-                min_halt_steps = (torch.rand_like(q_halt_logits) < self.config.halt_exploration_prob) * torch.randint_like(new_steps, low=2, high=self.config.halt_max_steps + 1)
-                halted = halted & (new_steps >= min_halt_steps)
+                    # Halt signal
+                    # NOTE: During evaluation, always use max steps, this is to guarantee the same halting steps inside a batch for batching purposes
+                    
+                    if self.config.no_ACT_continue:
+                        halted = halted | (q_halt_logits > 0)
+                    else:
+                        halted = halted | (q_halt_logits > q_continue_logits)
 
-                if not self.config.no_ACT_continue:
-                    # Compute target Q
-                    # NOTE: No replay buffer and target networks for computing target Q-value.
-                    # As batch_size is large, there're many parallel envs.
-                    # Similar concept as PQN https://arxiv.org/abs/2407.04811
-                    _, _, (next_q_halt_logits, next_q_continue_logits), _, _ = self.inner(new_inner_carry, new_current_data)
-                    outputs["target_q_continue"] = torch.sigmoid(torch.where(is_last_step, next_q_halt_logits, torch.maximum(next_q_halt_logits, next_q_continue_logits)))
+                    # Exploration
+                    min_halt_steps = (torch.rand_like(q_halt_logits) < self.config.halt_exploration_prob) * torch.randint_like(new_steps, low=2, high=self.config.halt_max_steps + 1)
+                    halted = halted & (new_steps >= min_halt_steps)
+
+                    if not self.config.no_ACT_continue:
+                        # Compute target Q
+                        # NOTE: No replay buffer and target networks for computing target Q-value.
+                        # As batch_size is large, there're many parallel envs.
+                        # Similar concept as PQN https://arxiv.org/abs/2407.04811
+                        _, _, (next_q_halt_logits, next_q_continue_logits), _, _ = self.inner(new_inner_carry, new_current_data)
+                        outputs["target_q_continue"] = torch.sigmoid(torch.where(is_last_step, next_q_halt_logits, torch.maximum(next_q_halt_logits, next_q_continue_logits)))
 
         return TinyRecursiveReasoningModel_ACTV1Carry(new_inner_carry, new_steps, halted, new_current_data), outputs

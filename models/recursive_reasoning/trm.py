@@ -163,6 +163,9 @@ class TinyRecursiveReasoningModel_ACTV1_Inner(nn.Module):
                                                   base=self.config.rope_theta)
             elif self.config.pos_encodings == "learned":
                 self.embed_pos = CastedEmbedding(self.config.seq_len + self.puzzle_emb_len, self.config.hidden_size, init_std=embed_init_std, cast_to=self.forward_dtype)
+            elif self.config.pos_encodings == "nope":
+                pass
+
         # When mlp_t=True, no positional encodings needed (MLP operates on sequence dimension directly)
 
         # Reasoning Layers

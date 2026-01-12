@@ -24,7 +24,7 @@ source venv/bin/activate
  
 # install one of torch versions available at Helios wheel repo
 pip install --upgrade pip wheel setuptools
-pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126 # install torch based on your cuda version
+pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 # install torch based on your cuda version
 pip install -r requirements.txt # install requirements
 pip install --no-cache-dir --no-build-isolation adam-atan2 
 
